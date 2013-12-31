@@ -901,6 +901,7 @@ STB_EXTERN char *stb__to_utf8(stb__wchar *str);
 #ifdef STB_DEFINE
 stb__wchar * stb_from_utf8(stb__wchar *buffer, char *ostr, int n)
 {
+#ifdef UTF8WIN
    unsigned char *str = (unsigned char *) ostr;
    stb_uint32 c;
    int i=0;
@@ -947,10 +948,16 @@ stb__wchar * stb_from_utf8(stb__wchar *buffer, char *ostr, int n)
    }
    buffer[i] = 0;
    return buffer;
+#else
+   MultiByteToWideChar( CP_ACP, 0, ostr, -1, buffer, n );
+   buffer[n-1] = 0;
+   return buffer;
+#endif
 }
 
 char * stb_to_utf8(char *buffer, const stb__wchar *str, int n)
 {
+#ifdef UTF8WIN
    int i=0;
    --n;
    while (*str) {
@@ -983,6 +990,11 @@ char * stb_to_utf8(char *buffer, const stb__wchar *str, int n)
    }
    buffer[i] = 0;
    return buffer;
+#else
+   WideCharToMultiByte( CP_ACP, 0, str, -1, buffer, n, NULL, NULL); 
+   buffer[n-1] = 0;
+   return buffer;
+#endif
 }
 
 stb__wchar *stb__from_utf8(char *str)
