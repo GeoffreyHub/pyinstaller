@@ -245,6 +245,9 @@ Parenthesized items have since been removed.
    #endif
 #endif
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #ifdef STB_DEFINE
    #include <assert.h>
    #include <stdarg.h>

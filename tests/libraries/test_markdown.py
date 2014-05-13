@@ -8,10 +8,6 @@
 #-----------------------------------------------------------------------------
 
 
-from hookutils import (collect_data_files, collect_submodules)
-
-
-# IPython (tested with 0.13) requires the following files:
-#   ./site-packages/IPython/config/profile/README_STARTUP
-datas = collect_data_files('IPython')
-hiddenimports = collect_submodules('IPython')
+# Markdown uses __import__ed extensions. Make sure these work by trying to use the 'toc' extension..
+import markdown
+markdown.markdown('testing',  ['toc'])

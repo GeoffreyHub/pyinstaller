@@ -179,10 +179,25 @@ def qt4_plugins_binaries(plugin_type):
     binaries = []
     pdir = qt4_plugins_dir()
     files = misc.dlls_in_dir(os.path.join(pdir, plugin_type))
+    
+    # Windows:
+    #
+    # dlls_in_dir() grabs all files ending with *.dll, *.so and *.dylib in a certain
+    # directory. On Windows this would grab debug copies of Qt 4 plugins, which then
+    # causes PyInstaller to add a dependency on the Debug CRT __in addition__ to the
+    # release CRT.
+    #
+    # Since debug copies of Qt4 plugins end with "d4.dll" we filter them out of the
+    # list.
+    #
+    if is_win:
+        files = [f for f in files if not f.endswith("d4.dll")]
+    
     for f in files:
         binaries.append((
             os.path.join('qt4_plugins', plugin_type, os.path.basename(f)),
             f, 'BINARY'))
+            
     return binaries
 
 
@@ -195,6 +210,15 @@ def qt4_menu_nib_dir():
     
     # list of directories where to look for qt_menu.nib    
     dirs = []
+
+    # Look into user-specified directory, just in case Qt4 is not installed
+    # in a standard location
+    if 'QTDIR' in os.environ:
+        dirs += [
+            os.path.join(os.environ['QTDIR'], "QtGui.framework/Versions/4/Resources"),
+            os.path.join(os.environ['QTDIR'], "lib", "QtGui.framework/Versions/4/Resources"),
+        ]
+
     # If PyQt4 is built against Qt5 look for the qt_menu.nib in a user
     # specified location, if it exists.
     if 'QT5DIR' in os.environ:
@@ -213,10 +237,10 @@ def qt4_menu_nib_dir():
         '/Library/Frameworks/QtGui.Framework/Versions/Current/Resources',
     ]
 
-    # Qt4 from Homebrew compiled as framework
-    globpath = '/usr/local/Cellar/qt/4.*/lib/QtGui.framework/Versions/4/Resources'
-    qt_homebrew_dirs = glob.glob(globpath)
-    dirs += qt_homebrew_dirs
+    # Qt from Homebrew
+    homebrewqtpath = get_homebrew_path('qt')
+    if homebrewqtpath:
+        dirs.append( os.path.join(homebrewqtpath,'lib','QtGui.framework','Versions','4','Resources') )
 
     # Check directory existence
     for d in dirs:
@@ -282,6 +306,8 @@ def qt5_menu_nib_dir():
     if 'QT5DIR' in os.environ:
         dirs.append(os.path.join(os.environ['QT5DIR'],
                                  "src", "plugins", "platforms", "cocoa"))
+        dirs.append(os.path.join(os.environ['QT5DIR'],
+                                 "src", "qtbase", "src", "plugins", "platforms", "cocoa"))
 
     # As of the time of writing macports doesn't yet support Qt5. So this is
     # just modified from the Qt4 version.
@@ -302,11 +328,10 @@ def qt5_menu_nib_dir():
         '/Library/Frameworks/QtGui.Framework/Versions/Current/Resources',
     ])
 
-    # Copied verbatim from the Qt4 version with 4 changed to 5
-    # Qt5 from Homebrew compiled as framework
-    globpath = '/usr/local/Cellar/qt/5.*/lib/QtGui.framework/Versions/5/Resources'
-    qt_homebrew_dirs = glob.glob(globpath)
-    dirs += qt_homebrew_dirs
+    # Qt5 from Homebrew
+    homebrewqtpath = get_homebrew_path('qt5')
+    if homebrewqtpath:
+        dirs.append( os.path.join(homebrewqtpath,'src','qtbase','src','plugins','platforms','cocoa') )
 
     # Check directory existence
     for d in dirs:
@@ -319,9 +344,72 @@ def qt5_menu_nib_dir():
         logger.error('Cannot find qt_menu.nib directory')
     return menu_dir
 
+def get_homebrew_path(formula = ''):
+    '''Return the homebrew path to the requested formula, or the global prefix when
+       called with no argument.  Returns the path as a string or None if not found.'''
+    import subprocess
+    brewcmd = ['brew','--prefix']
+    path = None
+    if formula:
+        brewcmd.append(formula)
+        dbgstr = 'homebrew formula "%s"' %formula
+    else:
+        dbgstr = 'homebrew prefix'
+    try:
+        path = subprocess.check_output(brewcmd).strip()
+        logger.debug('Found %s at "%s"' % (dbgstr, path))
+    except OSError:
+        logger.debug('Detected homebrew not installed')
+    except subprocess.CalledProcessError:
+        logger.debug('homebrew formula "%s" not installed' % formula)
+    return path 
+
+def get_qmake_path(version = ''):
+    '''
+    Try to find the path to qmake with version given by the argument
+    as a string.
+    '''
+    import subprocess
+
+    # Use QT[45]DIR if specified in the environment
+    if 'QT5DIR' in os.environ and version[0] == '5':
+        logger.debug('Using $QT5DIR/bin as qmake path')
+        return os.path.join(os.environ['QT5DIR'],'bin','qmake')
+    if 'QT4DIR' in os.environ and version[0] == '4':
+        logger.debug('Using $QT4DIR/bin as qmake path')
+        return os.path.join(os.environ['QT4DIR'],'bin','qmake')
+
+    # try the default $PATH
+    dirs = ['']
+
+    # try homebrew paths
+    for formula in ('qt','qt5'):
+        homebrewqtpath = get_homebrew_path(formula)
+        if homebrewqtpath:
+            dirs.append(homebrewqtpath)
+
+    for dir in dirs:
+        try:
+            qmake = os.path.join(dir, 'qmake')
+            versionstring = subprocess.check_output([qmake, '-query', \
+                                                      'QT_VERSION']).strip()
+            if versionstring.find(version) == 0:
+                logger.debug('Found qmake version "%s" at "%s".' \
+                             % (versionstring, qmake))
+                return qmake
+        except (OSError, subprocess.CalledProcessError):
+            pass
+    logger.debug('Could not find qmake matching version "%s".' % version)
+    return None
+     
+
 def qt5_qml_dir():
     import subprocess
-    qmldir = subprocess.check_output(["qmake", "-query",
+    qmake = get_qmake_path('5')
+    if qmake is None:
+        logger.error('Could not find qmake version 5.x, make sure PATH is ' \
+                   + 'set correctly or try setting QT5DIR.')
+    qmldir = subprocess.check_output([qmake, "-query",
                                       "QT_INSTALL_QML"]).strip()
     if len(qmldir) == 0:
         logger.error('Cannot find QT_INSTALL_QML directory, "qmake -query '
@@ -351,7 +439,7 @@ def qt5_qml_plugins_binaries(dir):
     files = misc.dlls_in_subdirs(os.path.join(qmldir, dir))
     if files is not None:
         for f in files:
-            relpath = string.lstrip(f, qmldir)
+            relpath = os.path.relpath(f, qmldir)
             instdir, file = os.path.split(relpath)
             instdir = os.path.join("qml", instdir)
             logger.debug("qt5_qml_plugins_binaries installing %s in %s"
@@ -410,7 +498,7 @@ def django_find_root_dir():
         settings_dir = manage_dir
     else:
         for f in files:
-            if os.path.isdir(f):
+            if os.path.isdir(os.path.join(manage_dir, f)):
                 subfiles = os.listdir(os.path.join(manage_dir, f))
                 # Subdirectory contains critical files.
                 if 'settings.py' in subfiles and 'urls.py' in subfiles:
@@ -609,12 +697,18 @@ def collect_submodules(package):
 PY_IGNORE_EXTENSIONS = set(['.py', '.pyc', '.pyd', '.pyo', '.so', 'dylib'])
 
 
-def collect_data_files(package):
+def collect_data_files(package, allow_py_extensions=False):
     """
     This routine produces a list of (source, dest) non-Python (i.e. data)
     files which reside in package. Its results can be directly assigned to
     ``datas`` in a hook script; see, for example, hook-sphinx.py. The
     package parameter must be a string which names the package.
+    By default, all Python executable files (those ending in .py, .pyc,
+    and so on) will NOT be collected; setting the allow_py_extensions
+    argument to True collects these files as well. This is typically used
+    with Python routines (such as those in pkgutil) that search a given
+    directory for Python executable files then load them as extensions or
+    plugins.
 
     This function does not work on zipped Python eggs.
 
@@ -627,7 +721,7 @@ def collect_data_files(package):
     for dirpath, dirnames, files in os.walk(pkg_dir):
         for f in files:
             extension = os.path.splitext(f)[1]
-            if not extension in PY_IGNORE_EXTENSIONS:
+            if allow_py_extensions or (not extension in PY_IGNORE_EXTENSIONS):
                 # Produce the tuple
                 # (/abs/path/to/source/mod/submod/file.dat,
                 #  mod/submod/file.dat)

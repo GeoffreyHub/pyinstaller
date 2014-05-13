@@ -47,6 +47,12 @@ Requirements
   * ldd
   * objdump
 
+**FreeBSD**
+  * FreeBSD 9.2 or newer.
+    Tested with FreeBSD 9.2 amd64, with included gcc (version 4.2.1)
+  * ldd
+  * objdump
+
 License
 =======
 
@@ -277,11 +283,20 @@ you must help it:
 * You can give additional import paths on the command line.
 * You can edit the ``myscript.spec`` file
   that |PyInstaller| writes the first time you run it for your script.
-  In the spec file you can tell |Pyinstaller| about code and data
-  files that are unique to your script.
+  In the spec file you can tell |Pyinstaller| about code modules
+  that are unique to your script.
 * You can write "hook" files that inform |Pyinstaller| of hidden imports.
   If you "hook" imports for a package that other users might also use,
   you can contribute your hook file to |PyInstaller|.
+
+If your program depends on access to certain data files,
+you can tell |PyInstaller| to include them in the bundle as well.
+You do this by modifying the spec file, an advanced topic that is
+covered under `Using Spec Files`_.
+In order to locate these files, your program needs to be able to 
+learn its path at run time in a way that works regardless of 
+whether or not it is running from a bundle.
+This is covered under `Accessing Data Files`_.
 
 Bundling to One Folder
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -611,10 +626,12 @@ Options for Windows apps
     or from a string of XML.
 
 -i <FILE.ico>, -i <FILE.exe,ID>, --icon=<FILE.ico>, --icon=<FILE.exe,ID>
-	Add an icon to the output executable.
-	Specify an icon *FILE*.ico to use that icon.
-	Specify an existing ``.exe`` file giving
-	the *ID* to extract the icon with that ID.
+    Add an icon to the output executable. Specify an icon *FILE*.ico
+    to use that icon. Specify an existing ``.exe`` file giving the
+    *ID* to extract the icon with that ID. ImageMagick_ and the
+    ``ppmtowinicon`` program from the `netpbm package`_ are two
+    programs capable of creating Windows ``.ico`` files from other
+    formats.
 
 -r <FILE[,TYPE[,NAME[,LANGUAGE]]]>, --resource=<FILE[,TYPE[,NAME[,LANGUAGE]]]>
     Add or update a resource of the given type, name and
@@ -685,8 +702,11 @@ For now you can apply your own icon after the app is built in several ways:
   in the Finder, Get Info on your app;
   click the icon in the info display and paste.
 
-GraphicConverter_ is one of several applications
-that can save a JPEG or PNG image in the ``.icns`` format.
+The following programs are capable of creating ``.icns`` files from JPEG or PNG images:
+
+* GraphicConverter_ ($$)
+* makeicns_ (MIT License)
+* png2icns_ (GPL)
 
 Setting the Supported Document Types
 --------------------------------------
@@ -975,8 +995,8 @@ In fact, it acts as an ordered set of tuples; that is, it contains no duplicates
 (where uniqueness is based on the *name* element of each tuple).
 Within this constraint, a TOC preserves the order of tuples added to it.
 
-Besides the normal list methods (appending, indexing, etc),
-a TOC supports taking differences and intersections.
+A TOC behaves like a list object and supports the same methods (appending, indexing, etc).
+A TOC also supports taking differences and intersections like a set.
 For these operations a simple list of tuples can be used as one argument.
 This makes excluding modules quite easy.
 For example,
@@ -1065,38 +1085,42 @@ Each tuple in this TOC has:
 Adding Files to the Bundle
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-To add files to the bundle, you insert them into the argument list of the
-``COLLECT`` object for a one-folder bundle,
+To add files to the bundle, you insert descriptions of the files
+into the argument list of the ``COLLECT`` object for a one-folder bundle,
 or to the argument list of the ``EXE`` object for a one-file bundle.
 You can add files as single TOC-style tuples,
 or you can add an entire Tree object by name.
 
-To add a README file at the top level of a one-folder bundle::
+To add a single README file at the top level of a one-folder bundle,
+add a single TOC item describing it to the argument list of COLLECT or EXE::
 
       collect = COLLECT(a.binaries +
                 [('README', '/my/project/readme', 'DATA')], ...)
 
-This adds one tuple to the ``a.binaries`` TOC. 
-However, the COLLECT class takes a variable-length list of arguments,
+This appends the README tuple to the ``a.binaries`` TOC.
+(You can use a list of one or more tuples in place of a TOC object in most cases).
+
+The COLLECT and EXE classes take a variable-length list of arguments,
 so it is possible to just append a list of one tuple to the argument list::
 
-      collect = COLLECT(a.binaries,
-                [('README', '/my/project/readme', 'DATA')], ...)
+      exe = EXE(a.scripts, a.binaries, ...
+                [('README', '/my/project/readme', 'DATA')])
 
-(You can use a list of tuples in place of a TOC object in most cases).
-
-To add a folder of files, prepare a Tree and name it to the COLLECT::
+To add a folder of files, prepare a Tree for that folder::
 
     # Include all spellcheck dictionary files, as a folder named dict
     dict_tree = Tree('../../aspell/dict', prefix = 'dict')
-    # add README to that TOC for convenience
-    dict_tree += [('README', '/my/project/readme', 'DATA')]
-    dist = COLLECT(exe, a.binaries, dict_tree)
 
-In this example, you have inserted the first four lines into a
-generated spec file.
-The fifth line is from the generated spec file but with the ``dict_tree`` 
-argument added.
+You could for convenience add single files to that Tree::
+
+    # add README to the Tree TOC for convenience
+    dict_tree += [('README', '/my/project/readme', 'DATA')]
+
+Then simply mention the Tree at any point in the argument list for COLLECT or EXE::
+
+    collect = COLLECT(dict_tree, a.binaries,...)
+
+The topic `Accessing Data Files`_ describes how to find these files at run-time.
 
 Giving Run-time Python Options
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1419,7 +1443,7 @@ The bootloader prepares everything for running Python code.
 It begins the setup and then reruns itself in another process.
 This approach of using two processes allows a lot of flexibility
 and is used in all bundles except one-folder mode in Windows.
-So do not be surprised if you will see your frozen app
+So do not be surprised if you will see your bundled app
 as  two processes in your system task manager.
      
 What happens during execution of bootloader:
@@ -1479,7 +1503,7 @@ Running Python code consists of several steps:
 
 4. Run the main script.
 
-Python imports in a frozen app
+Python imports in a bundled app
 -------------------------------------
 
 |PyInstaller| embeds compiled python code
@@ -1491,7 +1515,7 @@ the support is described in `PEP 302`_  "New Import Hooks".
  
 PyInstaller implements the PEP 302 specification for
 importing built-in modules,
-importing frozen modules (compiled python code
+importing "frozen" modules (compiled python code
 bundled with the app) and for C-extensions.
 The code can be read in ``./PyInstaller/loader/pyi_importers.py``.
  
@@ -1530,14 +1554,32 @@ in a bundled app:
 Adapting to being "frozen"
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-In some apps it is necessary to learn at run-time
-whether the app is running "live" (from source) or "frozen" (part of a bundle).
-For example, you might have a
-configuration file that, when running "live", is found based on a module's
+You might want to learn at run-time
+whether the app is running "live" (from source) or "frozen" (bundled).
+For example, you might have
+data files that, when running live, are found based on a module's
 ``__file__`` attribute.
 That won't work when the code is bundled.
 
-When your application needs access to a data file,
+The |PyInstaller| |bootloader| adds the name ``frozen`` to the ``sys`` module.
+So the test for "are we bundled?" is::
+
+	if getattr(sys, 'frozen', False):
+		# running in a bundle
+
+Accessing Data Files
+~~~~~~~~~~~~~~~~~~~~~~~
+
+You can include related files in either type of distribution.
+Data files and folders of files can be included
+by editing the spec file; see `Adding Files to the Bundle`_.
+
+The |bootloader| stores the absolute path to the bundle folder in ``sys._MEIPASS``.
+For a one-folder bundle, this is the path to that folder.
+For a one-file bundle, this is the path to the ``_MEIxxxxxx`` temporary folder
+created by the |bootloader| (see `How the One-File Program Works`_).
+
+When your application needs access to a data file that is bundled with it,
 for example a configuration file or an icon image file,
 you get the path to the file with the following code::
 
@@ -1551,51 +1593,25 @@ you get the path to the file with the following code::
         # we are running in a normal Python environment
         basedir = os.path.dirname(__file__)
 
-The |PyInstaller| |bootloader| adds the attribute ``frozen`` to the ``sys`` module.
-If that attribute exists, your script has been launched by the |bootloader|.
-When that is true, ``sys._MEIPASS`` (note the underscore in the name)
-contains the path to the folder containing
+This code sets ``basedir`` to the path to the folder containing
 your script and any other files or folders bundled with it.
-For one-folder mode this is the distribution folder.
-For one-file mode it is the temporary folder created by the |bootloader| .
-
 When your program was not started by the |bootloader|, the standard Python
 variable ``__file__`` is the full path to the script now executing,
 and ``os.path.dirname()`` extracts the path to the folder that contains it.
-
-
-Accessing Data Files
-~~~~~~~~~~~~~~~~~~~~~~~
-
-You can include related files in either type of distribution.
-Data files and folders of files can be included
-by editing the spec file; see `Adding Files to the Bundle`_.
+When bundled, ``sys._MEIPASS`` provides the path to bundle folder.
 
 In the one-folder distribution,
-bundled files are in the distribution folder.
-You can direct your users to these files, for example
-to see the ``README`` or edit a configuration file.
+bundled data files are in the distribution folder.
 Your code can make useful changes to files in the folder.
 
-In the one-file mode, the ``basedir`` path discovered by the code above
-is the path to a temporary folder that will be deleted.
-Your users cannot easily access any included files.
+In the one-file mode, bundled data files are packaged into the executable.
+The |bootloader| unpacks them into a temporary folder.
+The ``basedir`` path discovered by the code above
+is the path to this temporary folder.
 Any files your code creates or modifies in that folder
 are available only while the app is running.
 When it ends they will be deleted.
 
-Another way to access data files in one-file mode is to 
-refer to ``sys.executable``. 
-In an un-bundled app, that is, when running your script
-from the command line or a debugger, ``sys.executable``
-is the path to the Python interpreter.
-In a bundled app, it is the path to the bundled executable.
-The expression
-
-	``os.path.dirname(sys.executable)``
-
-gives the path of the folder containing the executable file
-that was launched to start the app.
 
 Capturing Version Data
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -2594,7 +2610,11 @@ Here's a simple example of using ``iu`` as a builtin import replacement.
 .. |SE_exeImage| image:: images/SE_exe.png
 .. _imputil: http://docs.python.org/2.7/library/imputil.html
 .. _Modulefinder: http://docs.python.org/2.7/library/modulefinder.html
+.. _ImageMagick: http://www.imagemagick.org/script/index.php
+.. _netpbm package: http://netpbm.sourceforge.net/
 .. _GraphicConverter: http://www.lemkesoft.de/en/products/graphic-converter/
+.. _makeicns: https://bitbucket.org/mkae/makeicns
+.. _png2icns: http://icns.sourceforge.net/
 .. _Django: https://www.djangoproject.com/
 .. _marshalled: http://docs.python.org/library/marshal
 .. _`Visual Studio Express`: http://www.microsoft.com/express/

@@ -7,11 +7,10 @@
 # The full license is in the file COPYING.txt, distributed with this software.
 #-----------------------------------------------------------------------------
 
+from PyQt4.QtGui import QApplication
+from PyQt4.QtWebKit import QWebView
 
-from hookutils import (collect_data_files, collect_submodules)
-
-
-# IPython (tested with 0.13) requires the following files:
-#   ./site-packages/IPython/config/profile/README_STARTUP
-datas = collect_data_files('IPython')
-hiddenimports = collect_submodules('IPython')
+app = QApplication([])
+view = QWebView()
+view.show()
+#app.exec_()
